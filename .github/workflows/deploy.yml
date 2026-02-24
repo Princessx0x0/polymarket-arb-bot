@@ -39,22 +39,14 @@ jobs:
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
-
-      - name: Install IAP tunnel component
-        run: gcloud components install tunnel --quiet
+        with:
+          install_components: 'beta'
 
       - name: Deploy via IAP tunnel
         run: |
-          gcloud compute ssh okaforprincess32@poly-bot-doha \
+          gcloud beta compute ssh okaforprincess32@poly-bot-doha \
             --project=polymarket-bot-dev \
             --zone=me-central1-a \
             --tunnel-through-iap \
             --strict-host-key-checking=no \
-            --command="
-              cd /home/okaforprincess32/polymarket_bot &&
-              git pull origin main &&
-              source venv/bin/activate &&
-              pip install -r requirements.txt -q &&
-              sudo systemctl restart polymarket-telegram &&
-              echo Deployment complete
-            "
+            --command="cd /home/okaforprincess32/polymarket_bot && git pull origin main && source venv/bin/activate && pip install -r requirements.txt -q && sudo systemctl restart polymarket-telegram && echo Deployment complete"
