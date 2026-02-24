@@ -30,17 +30,31 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     steps:
-      - name: SSH and deploy
-        uses: appleboy/ssh-action@v1.0.0
+      - uses: actions/checkout@v3
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /home/okaforprincess32/polymarket_bot
-            git pull origin main
-            source venv/bin/activate
-            pip install -r requirements.txt -q
-            sudo systemctl restart polymarket-telegram
-            sudo systemctl status polymarket-telegram --no-pager
-            echo "Deployment complete"
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install IAP tunnel component
+        run: gcloud components install tunnel --quiet
+
+      - name: Deploy via IAP tunnel
+        run: |
+          gcloud compute ssh okaforprincess32@poly-bot-doha \
+            --project=polymarket-bot-dev \
+            --zone=me-central1-a \
+            --tunnel-through-iap \
+            --strict-host-key-checking=no \
+            --command="
+              cd /home/okaforprincess32/polymarket_bot &&
+              git pull origin main &&
+              source venv/bin/activate &&
+              pip install -r requirements.txt -q &&
+              sudo systemctl restart polymarket-telegram &&
+              echo Deployment complete
+            "
