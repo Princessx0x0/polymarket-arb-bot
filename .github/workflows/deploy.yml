@@ -43,8 +43,6 @@ jobs:
           install_components: 'beta'
 
       - name: Deploy via IAP tunnel
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           gcloud beta compute ssh okaforprincess32@poly-bot-doha \
             --project=polymarket-bot-dev \
@@ -53,8 +51,10 @@ jobs:
             --strict-host-key-checking=no \
             --command="
               cd /home/okaforprincess32/polymarket_bot &&
-              git remote set-url origin https://Princessx0x0:${GH_PAT}@github.com/Princessx0x0/polymarket-arb-bot.git &&
+              PAT=\$(gcloud secrets versions access latest --secret=github-pat --project=polymarket-bot-dev) &&
+              git remote set-url origin https://Princessx0x0:\${PAT}@github.com/Princessx0x0/polymarket-arb-bot.git &&
               git pull origin main &&
+              git remote set-url origin https://github.com/Princessx0x0/polymarket-arb-bot.git &&
               source venv/bin/activate &&
               pip install -r requirements.txt -q &&
               sudo systemctl restart polymarket-telegram &&
