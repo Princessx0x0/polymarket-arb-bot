@@ -49,6 +49,8 @@ def cmd_opportunities():
         markets = event.get("markets", [])
         if len(markets) < 3:
             continue
+        if not event.get('negRisk', False):
+            continue
         yes_prices = []
         for m in markets:
             prices = m.get("outcomePrices", [])
