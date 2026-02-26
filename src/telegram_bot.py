@@ -32,46 +32,55 @@ def cmd_balance():
     return f"Balance\n\nAvailable: ${usdc:.2f} USDC"
 
 def cmd_opportunities():
-    slugs = [
-        ("uefa-champions-league-winner", "Champions League"),
-        ("republican-presidential-nominee-2028", "GOP Nominee 2028"),
-        ("fed-chair-nomination", "Fed Chair"),
-    ]
-    lines = ["Scanning opportunities...\n"]
-    for slug, label in slugs:
-        try:
-            resp = requests.get(
-                "https://gamma-api.polymarket.com/events",
-                params={"slug": slug}, timeout=15
-            )
-            events = resp.json()
-            if not events:
-                continue
-            markets = events[0].get("markets", [])
-            yes_sum = 0
-            count = 0
-            for m in markets:
-                prices = m.get("outcomePrices", [])
-                if isinstance(prices, str):
-                    prices = json.loads(prices)
-                outcomes = m.get("outcomes", [])
-                if isinstance(outcomes, str):
-                    outcomes = json.loads(outcomes)
-                for i, o in enumerate(outcomes):
-                    if o.lower() == "yes" and i < len(prices):
-                        yes_sum += float(prices[i])
-                        count += 1
-            profit = yes_sum - 1.0
-            status = "OPPORTUNITY" if profit > 0.02 else "no arb"
+    from execution.executor import fetch_event, parse_markets
+    try:
+        resp = requests.get(
+            "https://gamma-api.polymarket.com/events",
+            params={"active": "true", "closed": "false", "limit": 100},
+            timeout=15
+        )
+        events = resp.json()
+    except Exception as e:
+        return f"Error fetching markets: {e}"
+
+    lines = ["Market Scan\n"]
+    opportunities = []
+    for event in events:
+        markets = event.get("markets", [])
+        if len(markets) < 3:
+            continue
+        yes_prices = []
+        for m in markets:
+            prices = m.get("outcomePrices", [])
+            outcomes = m.get("outcomes", [])
+            if isinstance(prices, str): prices = json.loads(prices)
+            if isinstance(outcomes, str): outcomes = json.loads(outcomes)
+            for i, o in enumerate(outcomes):
+                if o.lower() == "yes" and i < len(prices):
+                    yes_prices.append(float(prices[i]))
+        if not yes_prices:
+            continue
+        yes_sum = sum(yes_prices)
+        profit = yes_sum - 1.0
+        if profit > 0.02:
+            opportunities.append({
+                "title": event.get("title", "")[:40],
+                "slug": event.get("slug", ""),
+                "profit": profit,
+                "conditions": len(yes_prices),
+                "yes_sum": yes_sum,
+            })
+
+    if not opportunities:
+        lines.append("No opportunities above 2% found.")
+    else:
+        opportunities.sort(key=lambda x: -x["profit"])
+        for o in opportunities[:10]:
             lines.append(
-                f"{label}\n"
-                f"  YES sum: {yes_sum:.4f}\n"
-                f"  Profit: {profit*100:.2f}%\n"
-                f"  Conditions: {count}\n"
-                f"  Status: {status}\n"
+                f"{o['title']}\n"
+                f"  Profit: {o['profit']*100:.2f}% | Conditions: {o['conditions']}\n"
+                f"  Slug: {o['slug']}\n"
             )
-        except Exception as e:
-            lines.append(f"{label}: error - {e}\n")
     return "\n".join(lines)
 
 def cmd_positions():
@@ -93,31 +102,88 @@ def cmd_positions():
     except Exception as e:
         return f"Could not fetch positions: {e}"
 
-def cmd_execute(slug, budget):
-    from execution.executor import execute_short
+def cmd_execute(parts):
+    """
+    /execute5 slug budget          - Must-Happen Arb
+    /execute1 slug budget          - Basic Arb
+    /execute2 slug_a slug_b budget - Mutually Exclusive
+    /execute3 slug_a slug_b budget - Contradiction Arb
+    /execute4 slug1 slug2 slug3 budget - One-of-Many
+    /execute slug budget           - Auto-detect
+    """
+    from execution.executor import (
+        execute_must_happen, execute_basic_arb,
+        execute_mutually_exclusive, execute_contradiction_arb,
+        execute_one_of_many, detect_and_execute
+    )
+
+    cmd = parts[0].lower()
+
     try:
-        execute_short(slug, budget_usdc=budget, dry_run=False)
-        return f"Execute triggered: {slug} with ${budget} budget"
+        if cmd == "/execute" or cmd == "/execute5":
+            if len(parts) < 3:
+                return "Usage: /execute slug budget\ne.g. /execute uefa-champions-league-winner 20"
+            slug, budget = parts[1], float(parts[2])
+            if cmd == "/execute5":
+                execute_must_happen(slug, budget, dry_run=False)
+            else:
+                detect_and_execute(slug, budget, dry_run=False)
+            return f"Strategy executed: {slug} ${budget}"
+
+        elif cmd == "/execute1":
+            if len(parts) < 3:
+                return "Usage: /execute1 slug budget"
+            execute_basic_arb(parts[1], float(parts[2]), dry_run=False)
+            return f"Basic Arb executed: {parts[1]}"
+
+        elif cmd == "/execute2":
+            if len(parts) < 4:
+                return "Usage: /execute2 slug_a slug_b budget"
+            execute_mutually_exclusive(parts[1], parts[2], float(parts[3]), dry_run=False)
+            return f"Mutually Exclusive Arb executed"
+
+        elif cmd == "/execute3":
+            if len(parts) < 4:
+                return "Usage: /execute3 slug_a slug_b budget"
+            execute_contradiction_arb(parts[1], parts[2], float(parts[3]), dry_run=False)
+            return f"Contradiction Arb executed"
+
+        elif cmd == "/execute4":
+            if len(parts) < 4:
+                return "Usage: /execute4 slug1 slug2 ... budget"
+            slugs = parts[1:-1]
+            budget = float(parts[-1])
+            execute_one_of_many(slugs, budget, dry_run=False)
+            return f"One-of-Many Arb executed: {len(slugs)} markets"
+
     except Exception as e:
         return f"Execute failed: {e}"
 
 def cmd_help():
     return (
-        "Polymarket Arb Bot Commands\n\n"
+        "Polymarket Arb Bot\n\n"
+        "MONITORING\n"
         "/balance - Check USDC balance\n"
-        "/opportunities - Scan for arb opportunities\n"
+        "/opportunities - Scan all markets\n"
         "/positions - View open positions\n"
-        "/execute slug budget - Place trades\n"
-        "  e.g. /execute uefa-champions-league-winner 20\n"
-        "/status - Bot status\n"
-        "/help - Show this menu"
+        "/status - Bot health\n\n"
+        "EXECUTION\n"
+        "/execute slug budget - Auto-detect strategy\n"
+        "/execute1 slug budget - Basic Arb (YES+NO)\n"
+        "/execute2 a b budget - Mutually Exclusive\n"
+        "/execute3 a b budget - Contradiction Arb\n"
+        "/execute4 a b c budget - One-of-Many\n"
+        "/execute5 slug budget - Must-Happen (NegRisk)\n\n"
+        "EXAMPLES\n"
+        "/execute5 uefa-champions-league-winner 20\n"
+        "/execute2 slug-a slug-b 10\n"
     )
 
 def cmd_status():
     return (
         "Bot Status\n\n"
-        "Scanner: running\n"
-        "Executor: ready\n"
+        "Telegram: online\n"
+        "Strategies: 1-5 loaded\n"
         "Network: Doha VM\n"
         "Exchange: Polymarket CLOB\n"
         "Funder: 0xf406...a03e"
@@ -127,7 +193,7 @@ def run():
     token = get_token()
     offset = 0
     print("Telegram bot polling started...")
-    send(token, CHAT_ID, "Bot started. Type /help for commands.")
+    send(token, CHAT_ID, "Bot restarted. Type /help for commands.")
 
     while True:
         try:
@@ -155,25 +221,17 @@ def run():
                 elif cmd == "/balance":
                     reply = cmd_balance()
                 elif cmd == "/opportunities":
-                    send(token, CHAT_ID, "Scanning... please wait.")
+                    send(token, CHAT_ID, "Scanning all markets... please wait.")
                     reply = cmd_opportunities()
                 elif cmd == "/positions":
                     reply = cmd_positions()
                 elif cmd == "/status":
                     reply = cmd_status()
-                elif cmd == "/execute":
-                    if len(parts) < 3:
-                        reply = "Usage: /execute slug budget\ne.g. /execute uefa-champions-league-winner 20"
-                    else:
-                        slug = parts[1]
-                        try:
-                            budget = float(parts[2])
-                            send(token, CHAT_ID, f"Executing {slug} with ${budget}...")
-                            reply = cmd_execute(slug, budget)
-                        except ValueError:
-                            reply = "Budget must be a number"
+                elif cmd in ("/execute", "/execute1", "/execute2", "/execute3", "/execute4", "/execute5"):
+                    send(token, CHAT_ID, f"Executing {cmd}...")
+                    reply = cmd_execute(parts)
                 else:
-                    reply = f"Unknown command: {cmd}\nType /help for commands."
+                    reply = f"Unknown command: {cmd}\nType /help"
 
                 send(token, CHAT_ID, reply)
 
