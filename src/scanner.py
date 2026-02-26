@@ -114,7 +114,7 @@ async def stream_tokens(token_ids, duration=270):
         return
     uri = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     try:
-        async with websockets.connect(uri) as ws:
+        async with websockets.connect(uri, open_timeout=10) as ws:
             await ws.send(json.dumps({
                 "type": "subscribe",
                 "channel": "market",
@@ -138,6 +138,7 @@ async def stream_tokens(token_ids, duration=270):
         pass
     except Exception as e:
         print(f"WebSocket error: {e}")
+        await asyncio.sleep(10)
 
 async def run_scanner():
     print("Scanner starting - monitoring all Polymarket NegRisk events")
