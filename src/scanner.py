@@ -101,6 +101,12 @@ def scan_all():
         data = analyse_event(event)
         if not data:
             continue
+        # Filter out fake arb - Win/Draw/Loss football markets
+        # Valid NegRisk arb has yes_sum just above 1.0
+        # Threshold scales with conditions: more conditions = higher yes_sum possible
+        max_yes_sum = 1.0 + (data["conditions"] * 0.03)
+        if data["yes_sum"] > max_yes_sum:
+            continue
         if data["profit"] > 0:
             log_opportunity(data)
             opportunities.append(data)

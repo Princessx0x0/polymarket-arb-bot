@@ -64,6 +64,10 @@ def cmd_opportunities():
             continue
         yes_sum = sum(yes_prices)
         profit = yes_sum - 1.0
+        # Filter fake arb - valid NegRisk yes_sum scales with conditions
+        max_yes_sum = 1.0 + (len(yes_prices) * 0.03)
+        if yes_sum > max_yes_sum:
+            continue
         if profit > 0.02:
             opportunities.append({
                 "title": event.get("title", "")[:40],
