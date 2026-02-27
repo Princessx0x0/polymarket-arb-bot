@@ -26,8 +26,9 @@ def send(token, chat_id, text):
 
 def cmd_balance():
     from execution.client import get_client
+    from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
     client = get_client()
-    bal = client.get_balance()
+    bal = client.get_balance_allowance(params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL))
     usdc = int(bal.get("balance", 0)) / 1e6
     return f"Balance\n\nAvailable: ${usdc:.2f} USDC"
 
