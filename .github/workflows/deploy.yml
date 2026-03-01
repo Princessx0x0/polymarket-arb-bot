@@ -1,22 +1,18 @@
 name: Deploy to Doha VM
-
 on:
   push:
     branches:
       - main
-
 jobs:
   lint:
     name: Check Python Syntax
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
       - name: Check syntax
         run: |
           python3 -m py_compile src/execution/client.py
@@ -24,27 +20,23 @@ jobs:
           python3 -m py_compile src/notifier.py
           python3 -m py_compile src/telegram_bot.py
           echo "All files passed syntax check"
-
   deploy:
     name: Deploy to VM
     runs-on: ubuntu-latest
     needs: lint
     steps:
       - uses: actions/checkout@v3
-
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
           install_components: 'beta'
-
       - name: Deploy via IAP tunnel
         run: |
-          gcloud beta compute ssh okaforprincess32@poly-bot-doha \
+          gcloud beta compute ssh sa_107676195394797364881@poly-bot-doha \
             --project=polymarket-bot-dev \
             --zone=me-central1-a \
             --tunnel-through-iap \
