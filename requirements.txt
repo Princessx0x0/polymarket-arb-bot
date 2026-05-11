@@ -3,3 +3,4 @@ google-cloud-secret-manager
 google-cloud-bigquery
 requests
 python-dotenv
+websockets

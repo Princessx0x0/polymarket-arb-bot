@@ -6,9 +6,10 @@ import requests
 from datetime import datetime, timezone
 from google.cloud import bigquery
 
-PROJECT = "polymarket-bot-dev"
+from src.config import GCP_PROJECT, BQ_DATASET
+PROJECT = GCP_PROJECT
 DATASET = "polymarket"
-BQ = bigquery.Client(project=PROJECT)
+BQ = bigquery.Client(project=GCP_PROJECT)
 
 def fetch_all_negrisk_events():
     events = []

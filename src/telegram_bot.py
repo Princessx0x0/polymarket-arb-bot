@@ -7,7 +7,8 @@ sys.path.insert(0, "/home/okaforprincess32/polymarket_bot/src")
 from google.cloud import secretmanager
 
 CHAT_ID = "8264835175"
-PROJECT = "polymarket-bot-dev"
+from src.config import GCP_PROJECT
+PROJECT = GCP_PROJECT
 
 def get_secret(name):
     sm = secretmanager.SecretManagerServiceClient()
