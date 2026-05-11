@@ -23,6 +23,7 @@ jobs:
           python3 -m py_compile src/logger.py
           python3 -m py_compile src/execution/client.py
           python3 -m py_compile src/execution/executor.py
+          python3 -m py_compile src/notifier.py
           echo "All files passed syntax check"
 
   deploy:
@@ -55,4 +56,4 @@ jobs:
             --zone=africa-south1-a \
             --tunnel-through-iap \
             --strict-host-key-checking=no \
-            --command="bash $(find /home -name deploy.sh 2>/dev/null | head -1)"
+            --command="bash /home/ifeekaffy_gmail_com/polymarket_bot/deploy.sh"
