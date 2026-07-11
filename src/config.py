@@ -4,7 +4,22 @@ All secrets fetched from GCP Secret Manager.
 No hardcoded values anywhere.
 """
 import os
+import socket
+import urllib3.util.connection as _urllib3_cn
 from google.cloud import secretmanager
+
+# ── Network ───────────────────────────────────────────────────────────────────
+# poly-bot-joburg has no functional IPv6 route (link-local only — confirmed via
+# `ip -6 route`), but hosts it talks to (Telegram) publish both A and AAAA
+# records. Left alone, requests/urllib3 can pick the IPv6 address first and
+# fail instantly with ENETUNREACH — this was the dominant cause of "Network is
+# unreachable" errors against api.telegram.org (100% poll failure observed).
+# Forcing IPv4 for all outbound HTTP calls sidesteps it. Nothing this bot talks
+# to (Telegram, Polymarket, GCP) requires IPv6, so this is safe process-wide.
+def _force_ipv4():
+    return socket.AF_INET
+
+_urllib3_cn.allowed_gai_family = _force_ipv4
 
 # ── GCP Settings ──────────────────────────────────────────────────────────────
 GCP_PROJECT = os.getenv("GCP_PROJECT", "polymarket-02")
