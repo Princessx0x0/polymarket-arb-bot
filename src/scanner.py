@@ -6,10 +6,35 @@ import requests
 from datetime import datetime, timezone
 from google.cloud import bigquery
 
-from src.config import GCP_PROJECT, BQ_DATASET
+from src.config import (
+    GCP_PROJECT, BQ_DATASET, MIN_ORDER_USDC,
+    MIN_PROFIT_PCT, MAX_YES_SUM_SCALE, NOTIFY_COOLDOWN_SECS,
+)
+from src.notifier import notify_opportunity
+
 PROJECT = GCP_PROJECT
 DATASET = "polymarket"
-BQ = bigquery.Client(project=GCP_PROJECT)
+
+# Lazy, like config.py's Secret Manager client — importing this module (e.g.
+# for tests) must not require live GCP credentials just to define functions.
+_bq_client = None
+
+def _get_bq():
+    global _bq_client
+    if _bq_client is None:
+        _bq_client = bigquery.Client(project=GCP_PROJECT)
+    return _bq_client
+
+# In-memory de-dup so a long-lived opportunity doesn't re-alert every scan
+# cycle (~every 4.5 min). Resets on restart — acceptable for a small bot.
+_last_notified = {}
+
+def _should_notify(slug: str) -> bool:
+    now = time.time()
+    if now - _last_notified.get(slug, 0) >= NOTIFY_COOLDOWN_SECS:
+        _last_notified[slug] = now
+        return True
+    return False
 
 def fetch_all_negrisk_events():
     events = []
@@ -58,12 +83,22 @@ def analyse_event(event):
     if not yes_prices:
         return None
     yes_sum = sum(yes_prices)
+    n = len(yes_prices)
+
+    # False arb filter — Win/Draw/Loss markets have inflated YES sums.
+    # Threshold scales with condition count (MAX_YES_SUM_SCALE, config.py).
+    # This is the single source of truth for the filter — scanner.py and
+    # telegram_bot.py both call analyse_event() so they can't diverge again.
+    max_yes_sum = 1.0 + (n * MAX_YES_SUM_SCALE)
+    if yes_sum > max_yes_sum:
+        return None
+
     return {
         "slug": event.get("slug", ""),
         "title": event.get("title", "")[:60],
         "yes_sum": yes_sum,
         "profit": yes_sum - 1.0,
-        "conditions": len(yes_prices),
+        "conditions": n,
         "token_ids": token_ids,
         "volume": float(event.get("volume24hr", 0) or 0),
     }
@@ -79,7 +114,7 @@ def log_opportunity(data):
         "num_conditions": data["conditions"],
         "volume_24hr": data["volume"],
     }
-    errors = BQ.insert_rows_json(f"{PROJECT}.{DATASET}.paper_trades", [row])
+    errors = _get_bq().insert_rows_json(f"{PROJECT}.{DATASET}.paper_trades", [row])
     if errors:
         print(f"BQ error: {errors}")
 
@@ -90,7 +125,7 @@ def log_tick(market_id, price, raw):
         "price": price,
         "raw": json.dumps(raw),
     }
-    errors = BQ.insert_rows_json(f"{PROJECT}.{DATASET}.market_ticks_v2", [row])
+    errors = _get_bq().insert_rows_json(f"{PROJECT}.{DATASET}.market_ticks_v2", [row])
     if errors:
         print(f"BQ tick error: {errors}")
 
@@ -102,17 +137,14 @@ def scan_all():
         data = analyse_event(event)
         if not data:
             continue
-        # Filter out fake arb - Win/Draw/Loss football markets
-        # Valid NegRisk arb has yes_sum just above 1.0
-        # Threshold scales with conditions: more conditions = higher yes_sum possible
-        max_yes_sum = 1.0 + (data["conditions"] * 0.03)
-        if data["yes_sum"] > max_yes_sum:
-            continue
         if data["profit"] > 0:
             log_opportunity(data)
             opportunities.append(data)
-            if data["profit"] > 0.02:
+            if data["profit"] > MIN_PROFIT_PCT:
                 print(f"  OPPORTUNITY: {data['title'][:40]} | profit={data['profit']*100:.2f}% | conditions={data['conditions']}")
+                if _should_notify(data["slug"]):
+                    budget_estimate = MIN_ORDER_USDC * data["conditions"]
+                    notify_opportunity(data["title"], data["profit"] * 100, data["conditions"], budget_estimate)
     print(f"Scan complete: {len(opportunities)} opportunities from {len(events)} NegRisk markets")
     return opportunities
 

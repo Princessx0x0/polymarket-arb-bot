@@ -19,7 +19,14 @@ CHAIN_ID    = 137  # Polygon mainnet
 MIN_ORDER_USDC      = 1.0    # Minimum order size in USDC
 MIN_PROFIT_PCT      = 0.02   # Minimum 2% profit to flag opportunity
 SCAN_INTERVAL_SECS  = 300    # Scan every 5 minutes
-MAX_YES_SUM_SCALE   = 0.03   # Per-condition threshold for false arb filter
+MAX_YES_SUM_SCALE   = 0.03   # Per-condition threshold for false arb filter — hand-tuned
+                              # (see docs/Challenges.md), not derived from the paper's
+                              # VWAP+liquidity methodology. Treat as a known weak point.
+NOTIFY_COOLDOWN_SECS = 1800  # Don't re-alert the same opportunity more than once per 30 min
+
+# ── Telegram ──────────────────────────────────────────────────────────────────
+# Single source of truth for the authorised chat — bot.py and notifier.py both read this.
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8264835175")
 
 # ── Secret Manager ────────────────────────────────────────────────────────────
 _sm_client = None

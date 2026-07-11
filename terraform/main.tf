@@ -205,6 +205,27 @@ resource "google_bigquery_table" "paper_trades" {
   ])
 }
 
+# Real order attempts (filled/failed/skipped) from execution/executor.py's
+# place_order(). Distinct from paper_trades (scan-time opportunities) so
+# actual fills can be analysed against what the scanner predicted —
+# BigQuery as an analysis surface, not just a write-only log.
+resource "google_bigquery_table" "fills" {
+  dataset_id          = google_bigquery_dataset.polymarket.dataset_id
+  table_id            = "fills"
+  deletion_protection = false
+
+  schema = jsonencode([
+    { name = "ts",         type = "TIMESTAMP", mode = "REQUIRED" },
+    { name = "slug",       type = "STRING",    mode = "NULLABLE" },
+    { name = "strategy",   type = "INTEGER",   mode = "NULLABLE" },
+    { name = "token_id",   type = "STRING",    mode = "NULLABLE" },
+    { name = "price",      type = "FLOAT",     mode = "NULLABLE" },
+    { name = "size_usdc",  type = "FLOAT",     mode = "NULLABLE" },
+    { name = "result",     type = "STRING",    mode = "NULLABLE" },
+    { name = "error",      type = "STRING",    mode = "NULLABLE" },
+  ])
+}
+
 # ── Secret Manager ────────────────────────────────────────────────────────────
 # Creates the secret containers - you fill the values separately
 resource "google_secret_manager_secret" "secrets" {
@@ -213,6 +234,7 @@ resource "google_secret_manager_secret" "secrets" {
     "polymarket-api-secret",
     "polymarket-api-passphrase",
     "polymarket-private-key",
+    "polymarket-funder-address",
     "telegram-bot-token",
     "github-pat",
   ])

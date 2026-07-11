@@ -1,14 +1,25 @@
-import json
 import time
 import requests
-import sys
-sys.path.insert(0, "/home/okaforprincess32/polymarket_bot/src")
 
 from google.cloud import secretmanager
 
-CHAT_ID = "8264835175"
-from src.config import GCP_PROJECT
+from src.config import GCP_PROJECT, TELEGRAM_CHAT_ID, MIN_PROFIT_PCT
+from src.execution.executor import (
+    execute_must_happen, execute_basic_arb,
+    execute_mutually_exclusive, execute_contradiction_arb,
+    execute_one_of_many, detect_and_execute,
+)
+from src.execution.client import get_client
+from src.scanner import fetch_all_negrisk_events, analyse_event
+from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
+
+# Run this module with `python3 -m src.telegram_bot` (as the systemd service
+# does — see restore.sh) so these imports resolve without any sys.path hack.
+# A missing strategy function now fails loudly at startup instead of being
+# swallowed silently inside a Telegram command handler.
+
 PROJECT = GCP_PROJECT
+CHAT_ID = TELEGRAM_CHAT_ID
 
 def get_secret(name):
     sm = secretmanager.SecretManagerServiceClient()
@@ -26,57 +37,35 @@ def send(token, chat_id, text):
     )
 
 def cmd_balance():
-    from execution.client import get_client
-    from py_clob_client.clob_types import AssetType, BalanceAllowanceParams
     client = get_client()
     bal = client.get_balance_allowance(params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL))
     usdc = int(bal.get("balance", 0)) / 1e6
     return f"Balance\n\nAvailable: ${usdc:.2f} USDC"
 
 def cmd_opportunities():
-    from execution.executor import fetch_event, parse_markets
+    """
+    Reuses scanner.py's paginated fetch + false-arb filter instead of
+    reimplementing a shallower (unpaginated, differently-filtered) version —
+    this used to be a second, diverging copy of the same scan logic.
+    """
     try:
-        resp = requests.get(
-            "https://gamma-api.polymarket.com/events",
-            params={"active": "true", "closed": "false", "limit": 100},
-            timeout=15
-        )
-        events = resp.json()
+        events = fetch_all_negrisk_events()
     except Exception as e:
         return f"Error fetching markets: {e}"
 
     lines = ["Market Scan\n"]
     opportunities = []
     for event in events:
-        markets = event.get("markets", [])
-        if len(markets) < 3:
+        data = analyse_event(event)
+        if not data:
             continue
-        if not event.get('negRisk', False):
-            continue
-        yes_prices = []
-        for m in markets:
-            prices = m.get("outcomePrices", [])
-            outcomes = m.get("outcomes", [])
-            if isinstance(prices, str): prices = json.loads(prices)
-            if isinstance(outcomes, str): outcomes = json.loads(outcomes)
-            for i, o in enumerate(outcomes):
-                if o.lower() == "yes" and i < len(prices):
-                    yes_prices.append(float(prices[i]))
-        if not yes_prices:
-            continue
-        yes_sum = sum(yes_prices)
-        profit = yes_sum - 1.0
-        # Filter fake arb - valid NegRisk yes_sum scales with conditions
-        max_yes_sum = 1.0 + (len(yes_prices) * 0.03)
-        if yes_sum > max_yes_sum:
-            continue
-        if profit > 0.02:
+        if data["profit"] > MIN_PROFIT_PCT:
             opportunities.append({
-                "title": event.get("title", "")[:40],
-                "slug": event.get("slug", ""),
-                "profit": profit,
-                "conditions": len(yes_prices),
-                "yes_sum": yes_sum,
+                "title": data["title"][:40],
+                "slug": data["slug"],
+                "profit": data["profit"],
+                "conditions": data["conditions"],
+                "yes_sum": data["yes_sum"],
             })
 
     if not opportunities:
@@ -92,7 +81,6 @@ def cmd_opportunities():
     return "\n".join(lines)
 
 def cmd_positions():
-    from execution.client import get_client
     client = get_client()
     try:
         positions = client.get_positions()
@@ -119,12 +107,6 @@ def cmd_execute(parts):
     /execute4 slug1 slug2 slug3 budget - One-of-Many
     /execute slug budget           - Auto-detect
     """
-    from execution.executor import (
-        execute_must_happen, execute_basic_arb,
-        execute_mutually_exclusive, execute_contradiction_arb,
-        execute_one_of_many, detect_and_execute
-    )
-
     cmd = parts[0].lower()
 
     try:
@@ -192,7 +174,7 @@ def cmd_status():
         "Bot Status\n\n"
         "Telegram: online\n"
         "Strategies: 1-5 loaded\n"
-        "Network: Doha VM\n"
+        "Network: Johannesburg VM (africa-south1)\n"
         "Exchange: Polymarket CLOB\n"
         "Funder: 0xf406...a03e"
     )

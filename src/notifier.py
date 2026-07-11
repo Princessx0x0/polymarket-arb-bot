@@ -4,11 +4,9 @@ Sends alerts, trade confirmations, and status updates.
 Uses config.py for all credentials - no hardcoded values.
 """
 import requests
-from src.config import Secrets, get_secret
-import os
+from src.config import Secrets, TELEGRAM_CHAT_ID
 
-# Chat ID can be overridden via environment variable
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8264835175")
+CHAT_ID = TELEGRAM_CHAT_ID
 
 def send(message: str):
     """Send a message to Telegram."""
